@@ -13,31 +13,28 @@ const admin = require("firebase-admin");
 const serviceAccount = require("./zap-shift-01-firebase-adminsdk.json");
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
+    credential: admin.credential.cert(serviceAccount)
 });
 
 // middlewear
 app.use(express.json());
 app.use(cors());
 
-const verifyFBToken = async(req, res, next) => {
-    
-    console.log("Headers in the midddle wear: ", req.headers.authorization);
+const verifyFBToken = async (req, res, next) => {
 
     const token = req.headers.authorization;
 
-    if(! token){
-        return res.status(401).send({message: 'unauthorized access!'});
+    if (!token) {
+        return res.status(401).send({ message: 'unauthorized access!' });
     }
 
     try {
         const idToken = token.split(' ')[1];
         const decoded = await admin.auth().verifyIdToken(idToken);
-        console.log(decoded);
         req.decoded_email = decoded.email;
-         next();
+        next();
     } catch (error) {
-         return res.status(401).send({message: 'unauthorized access!'});
+        return res.status(401).send({ message: 'unauthorized access!' });
     }
 }
 
@@ -69,18 +66,46 @@ async function run() {
         const ridersCollection = db.collection('riders');
 
         // users api
-        app.post('/users', async(req, res) => {
+        app.get('/users', verifyFBToken, async (req, res) => {
+
+            const cursor = usersCollection.find({});
+            const result = await cursor.toArray();
+            res.send(result);
+        })
+
+        app.get('/users/:email/role', async(req, res) =>{
+            const email = req.params.email;
+            const query = {email};
+            const user = await usersCollection.findOne(query);
+            res.send({role: user?.role || 'user'});
+        })
+
+        app.post('/users', async (req, res) => {
             const user = req.body;
             user.role = 'user';
             user.createdAt = new Date();
             const email = user.email;
-            const userExist = await usersCollection.findOne({email});
+            const userExist = await usersCollection.findOne({ email });
 
-            if(userExist){
-                return res.send({message: 'user already exist'});
+            if (userExist) {
+                return res.send({ message: 'user already exist' });
             }
 
             const result = await usersCollection.insertOne(user);
+            res.send(result);
+        })
+
+        app.patch('/users/role/:id', async (req, res) => {
+            const id = req.params.id;
+            const roleInfo = req.body.role;
+
+            const query = { _id: new ObjectId(id) };
+            const update = {
+                $set: {
+                    role: roleInfo
+                }
+            }
+            const result = await usersCollection.updateOne(query, update);
             res.send(result);
         })
 
@@ -158,7 +183,7 @@ async function run() {
             const session = await stripe.checkout.sessions.retrieve(sessionId);
 
             const transactionId = session.payment_intent;
-            const query = {transactionId: transactionId }
+            const query = { transactionId: transactionId }
             const paymentExist = await paymentCollection.findOne(query);
             if (paymentExist) {
                 return res.send({
@@ -207,29 +232,29 @@ async function run() {
         })
 
         // Payment get
-        app.get('/payments', verifyFBToken, async(req, res) => {
+        app.get('/payments', verifyFBToken, async (req, res) => {
             const email = req.query.email;
             const query = {};
 
-            if(email){
+            if (email) {
                 query.customerEmail = email;
 
-                if(email !== req.decoded_email){
-                    return res.status(403).send({message: "Forbidden access"})
+                if (email !== req.decoded_email) {
+                    return res.status(403).send({ message: "Forbidden access" })
                 }
             }
 
-            
 
-            const cursor = paymentCollection.find(query).sort({paidAt: -1});
+
+            const cursor = paymentCollection.find(query).sort({ paidAt: -1 });
             const result = await cursor.toArray();
             res.send(result);
         })
 
         // riders related api
-        app.get('/riders', async(req, res) =>{
+        app.get('/riders', async (req, res) => {
             const query = {};
-            if(req.query.status){
+            if (req.query.status) {
                 query.status = req.query.status
             }
 
@@ -238,7 +263,7 @@ async function run() {
             res.send(result);
         })
 
-        app.post('/riders', async(req, res) =>{
+        app.post('/riders', async (req, res) => {
             const rider = req.body;
             rider.status = 'pending';
             rider.createdAt = new Date();
@@ -247,20 +272,21 @@ async function run() {
             res.send(result);
         })
 
-        app.patch('/riders/:id', verifyFBToken, async(req, res) =>{
+        app.patch('/riders/:id', verifyFBToken, async (req, res) => {
             const status = req.body.status;
             const id = req.params.id;
 
-            const query = {_id: new ObjectId(id)}
+            const query = { _id: new ObjectId(id) }
             const update = {
                 $set: {
                     status: status
                 }
             }
+            const result = await ridersCollection.updateOne(query, update)
 
-            if(status === 'approved'){
-                const email = req.query.email;
-                const userQuery = {}
+            if (status === 'approved') {
+                const email = req.body.email;
+                const userQuery = { email }
                 const updateUser = {
                     $set: {
                         role: 'rider'
@@ -268,13 +294,13 @@ async function run() {
                 }
                 const userResult = await usersCollection.updateOne(userQuery, updateUser)
             }
-            const result = await ridersCollection.updateOne(query, update)
+
             res.send(result);
         });
 
-        app.delete('/riders/:id', async(req, res) => {
+        app.delete('/riders/:id', async (req, res) => {
             const id = req.params.id;
-            const query = {_id: new ObjectId(id)}
+            const query = { _id: new ObjectId(id) }
 
             const result = await ridersCollection.deleteOne(query)
             res.send(result);
