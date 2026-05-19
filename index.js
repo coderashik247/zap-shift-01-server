@@ -22,7 +22,6 @@ admin.initializeApp({
 app.use(express.json());
 app.use(cors({
   origin: [
-    'http://localhost:5173',
     'https://zap-shift-01-client.onrender.com'
   ],
   credentials: true
